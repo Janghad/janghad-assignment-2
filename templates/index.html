@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KMeans Clustering Algorithm</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+</head>
+<body>
+    <h1>KMeans Clustering Algorithm</h1>
+
+    <form id="kmeansForm">
+        <label for="k">Number of Clusters (k):</label>
+        <input type="number" id="k" name="k" required><br><br>
+
+        <label for="init_method">Initialization Method:</label>
+        <select id="init_method" name="init_method" required>
+            <option value="random">Random</option>
+            <option value="farthest_first">Farthest First</option>
+            <option value="kmeans++">KMeans++</option>
+        </select><br><br>
+
+        <button type="submit" id="runKMeansBtn">Run KMeans</button>
+    </form>
+
+    <div id="clusterPlot"></div>
+
+    <!-- Additional Buttons -->
+    <button id="stepBtn" style="display:none;">Step Through KMeans</button>
+    <button id="convergeBtn" style="display:none;">Run to Convergence</button>
+    <button id="newDatasetBtn">Generate New Dataset</button>
+    <button id="resetBtn">Reset Algorithm</button>
+
+    <script>
+        var steps = {{ steps | tojson }};
+        var currentStep = 0;
+        var staticPoints = {{ points | tojson }};
+
+        document.getElementById('runKMeansBtn').addEventListener('click', (event) => {
+            event.preventDefault();  // Prevent default form submission
+            const k = document.getElementById('k').value;
+            const init_method = document.getElementById('init_method').value;
+
+            fetch('/run_kmeans', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    k: k,
+                    init_method: init_method
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                steps = data.steps;  // Update the steps
+                plotStaticPoints();  // Re-plot the points with initial centroids
+                document.getElementById("stepBtn").style.display = 'inline';
+                document.getElementById("convergeBtn").style.display = 'inline';
+            })
+            .catch(error => console.error('Error:', error));
+        });
+
+        function plotStaticPoints() {
+            var scatter_trace = {
+                x: staticPoints.map(p => p[0]),
+                y: staticPoints.map(p => p[1]),
+                mode: 'markers',
+                name: 'Data Points',
+                marker: { size: 10 }
+            };
+
+            var centroid_trace = {
+                x: steps.length > 0 ? steps[0].centroids.map(c => c[0]) : [],
+                y: steps.length > 0 ? steps[0].centroids.map(c => c[1]) : [],
+                mode: 'markers',
+                name: 'Initial Centroids',
+                marker: { size: 15, color: 'red', symbol: 'x' }
+            };
+
+            var layout = {
+                title: 'Data Points and Initial Centroids',
+                xaxis: { title: 'X-axis', range: [-10, 10] },
+                yaxis: { title: 'Y-axis', range: [-10, 10] },
+                showlegend: true
+            };
+
+            Plotly.newPlot('clusterPlot', [scatter_trace, centroid_trace], layout);
+        }
+
+        document.getElementById("stepBtn").onclick = function() {
+            if (currentStep < steps.length) {
+                var step = steps[currentStep];
+                var data = [];
+
+                Object.keys(step.clusters).forEach(function(clusterKey) {
+                    var points = step.clusters[clusterKey];
+                    var trace = {
+                        x: points.map(p => p[0]),
+                        y: points.map(p => p[1]),
+                        mode: 'markers',
+                        name: 'Cluster ' + (parseInt(clusterKey) + 1),
+                        marker: { size: 10 }
+                    };
+                    data.push(trace);
+                });
+
+                var centroid_trace = {
+                    x: step.centroids.map(c => c[0]),
+                    y: step.centroids.map(c => c[1]),
+                    mode: 'markers',
+                    name: 'Centroids',
+                    marker: { size: 15, color: 'red', symbol: 'x' }
+                };
+                data.push(centroid_trace);
+
+                // Use Plotly.react to update the plot without adding new traces
+                Plotly.react('clusterPlot', data, {
+                    title: 'KMeans Clustering',
+                    xaxis: { title: 'X-axis', range: [-10, 10] },
+                    yaxis: { title: 'Y-axis', range: [-10, 10] },
+                    showlegend: true
+                });
+
+                currentStep++;
+                if (currentStep >= steps.length) {
+                    document.getElementById("stepBtn").disabled = true;
+                }
+            }
+        };
+
+        document.getElementById("convergeBtn").onclick = function() {
+            if (steps.length > 0) {
+                var finalStep = steps[steps.length - 1]; // Get the last step (converged state)
+                var data = [];
+
+                // Plot all clusters in the final step
+                Object.keys(finalStep.clusters).forEach(function(clusterKey) {
+                    var points = finalStep.clusters[clusterKey];
+                    var trace = {
+                        x: points.map(p => p[0]),
+                        y: points.map(p => p[1]),
+                        mode: 'markers',
+                        name: 'Cluster ' + (parseInt(clusterKey) + 1),
+                        marker: { size: 10 }
+                    };
+                    data.push(trace);
+                });
+
+                // Plot the final centroids
+                var centroid_trace = {
+                    x: finalStep.centroids.map(c => c[0]),
+                    y: finalStep.centroids.map(c => c[1]),
+                    mode: 'markers',
+                    name: 'Centroids',
+                    marker: { size: 15, color: 'red', symbol: 'x' }
+                };
+                data.push(centroid_trace);
+
+                // Update the plot with the final converged state
+                Plotly.react('clusterPlot', data, {
+                    title: 'KMeans Clustering - Final Convergence',
+                    xaxis: { title: 'X-axis', range: [-10, 10] },
+                    yaxis: { title: 'Y-axis', range: [-10, 10] },
+                    showlegend: true
+                });
+
+                // Disable further interaction since it has converged
+                document.getElementById("stepBtn").disabled = true;
+            }
+        };
+
+        document.getElementById("newDatasetBtn").onclick = function() {
+            fetch('/generate_dataset', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                staticPoints = data.points;
+                currentStep = 0;
+                plotStaticPoints();
+                document.getElementById("stepBtn").disabled = false;
+            })
+            .catch(error => console.error('Error:', error));
+        };
+
+        document.getElementById("resetBtn").onclick = function() {
+            currentStep = 0;
+            steps = [];  // Clear the steps to remove centroids and clustering
+            
+            // Plot only the static points, without centroids
+            plotStaticPoints();
+
+            
+            document.getElementById("stepBtn").disabled = false;
+            document.getElementById("convergeBtn").disabled = false;
+            document.getElementById("stepBtn").style.display = 'none';
+            document.getElementById("convergeBtn").style.display = 'none';
+        };
+
+        if (steps.length > 0) {
+            document.getElementById("stepBtn").style.display = 'inline';
+            document.getElementById("convergeBtn").style.display = 'inline';
+        }
+
+        plotStaticPoints();
+    </script>
+</body>
+</html>
